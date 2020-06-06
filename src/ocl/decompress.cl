@@ -321,6 +321,20 @@ static inline int decompress_core(__global const uint64_t *RESTRICT_UNLESS_INPLA
 			*p.out++ = p.ostart[offset >> 3];
 		}
 		break;
+		case 0: {
+			// The D8 opcode can be handled by the default case,
+			// but since it's one of the most common ops., and one
+			// of the simplest, it can benefit from a dedicated case
+			uint64_t value = read_bits(&p, 64);
+#ifdef ENABLE_ERROR_HANDLING
+			if (p.errorcode != 0)
+				return p.errorcode;
+			if ((p.out - p.ostart) * sizeof(uint64_t) + 8 > p.olen)
+				return -ENOSPC;
+#endif
+			*p.out++ = swap_native_to_be64(value);
+		}
+		break;
 		default:
 			do_op(&p, op);
 #ifdef ENABLE_ERROR_HANDLING
