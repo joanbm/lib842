@@ -179,7 +179,6 @@ static inline void do_op(struct sw842_param_decomp *p, uint8_t op)
 #endif
 
 	uint64_t output_word = 0;
-	uint32_t bits = 0;
 
 	// TODOXXX explain the patterns those formulas are based on
 	uint8_t opbits = 64 - ((op % 5) + 1) / 2 * 8 - ((op % 5) / 4) * 7
@@ -190,39 +189,34 @@ static inline void do_op(struct sw842_param_decomp *p, uint8_t op)
 		return;
 #endif
 
+	uint64_t offset;
 	for (int i = 0; i < 4; i++) {
 		// TODOXXX explain the patterns those formulas are based on
 		uint8_t opchunk = (i < 2) ? op / 5 : op % 5;
-		uint32_t is_index = (i & 1) * (opchunk & 1) + ((i & 1) ^ 1) * (opchunk >= 2);
-		uint32_t dst_size = 2 + (opchunk >= 4) * (1 - 2 * (i % 2)) * 2;
+		bool set_index = (i & 1) * (opchunk & 1) + ((i & 1) ^ 1) * (opchunk >= 2);
+		bool use_index = set_index | (opchunk >= 4);
+		uint32_t index_size = 2 + (opchunk >= 4) * 2;
+		uint64_t fifo_size = 2048 - 1536 * ((index_size >> 2) < 1);
 		uint8_t num_bits = (i & 1) * (16 - (opchunk % 2) * 8 - (opchunk >= 4) * 16) +
 				   ((i & 1) ^ 1) * (16 - (opchunk / 2) * 8 + (opchunk >= 4) * 9);
 
-		// https://stackoverflow.com/a/28703383
-		uint64_t bitsmask = ((uint64_t)-(num_bits != 0)) &
-				    (((uint64_t)-1) >> (64 - num_bits));
-		uint64_t value = (params >> (opbits - num_bits)) & bitsmask;
 		opbits -= num_bits;
+		uint16_t value = (params >> opbits) & (1 << num_bits) - 1;
 
-		if (is_index) {
-			// TODOXXX explain how this relates to In_FIFO_SIZE constants
-			uint64_t offset = get_index(
-				p, dst_size, value,
-				2048 - 1536 * ((dst_size >> 2) < 1));
+		if (set_index) {
+			offset = get_index(p, index_size, value, fifo_size);
 #ifdef ENABLE_ERROR_HANDLING
 			if (p->errorcode != 0)
 				return;
 #endif
 			offset >>= 1;
-			__global uint16_t *ostart16 =
-				(__global uint16_t *)p->ostart;
-			value = (((uint64_t)swap_be_to_native16(ostart16[offset])) << 48) |
-				(((uint64_t)swap_be_to_native16(ostart16[offset + 1])) << 32);
-			value >>= (WSIZE - (dst_size << 3));
 		}
-		output_word |= value
-			       << (64 - (dst_size << 3) - bits);
-		bits += dst_size << 3;
+		if (use_index) {
+			value = swap_be_to_native16(((__global uint16_t *)p->ostart)[offset]);
+		}
+
+		output_word |= (uint64_t)value << (48 - 16 * i);
+		offset++;
 	}
 #ifdef ENABLE_ERROR_HANDLING
 	if ((p->out - p->ostart) * sizeof(uint64_t) + 8 > p->olen) {
