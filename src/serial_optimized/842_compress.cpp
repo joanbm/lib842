@@ -606,7 +606,8 @@ int optsw842_compress(const uint8_t *in, size_t ilen,
 		*olen = 0;
 
 		/* make initial 'last' different so we don't match the first time */
-		last = ~read64(p->in);
+		if (p->ilen != 0)
+			last = ~read64(p->in);
 
 		while (p->ilen > 7) {
 			next = read64(p->in);
