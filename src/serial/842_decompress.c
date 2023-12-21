@@ -328,7 +328,7 @@ int sw842_decompress(const uint8_t *in, size_t ilen,
 			if (ret)
 				return ret;
 
-			if (p.out == out) /* no previous bytes */
+			if (p.out - out < 8) /* no previous bytes */
 				return -EINVAL;
 
 			/* copy rep + 1 */
