@@ -1,0 +1,90 @@
+---
+name: Build and test
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04]
+        compiler: [gcc, clang]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            echo "CC=gcc" >> $GITHUB_ENV
+            echo "CXX=g++" >> $GITHUB_ENV
+          elif [ "${{ matrix.compiler }}" = "clang" ]; then
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "CXX=clang++" >> $GITHUB_ENV
+          fi
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get -y install \
+            libnuma-dev opencl-headers ocl-icd-opencl-dev pocl-opencl-icd
+
+      - name: Install cryptodev-linux
+        run: |
+          sudo apt-get -y install "linux-headers-$(uname -r)"
+          git clone https://github.com/joanbm/cryptodev-linux
+          cd cryptodev-linux
+          make -j"$(nproc)"
+          sudo make install
+          sudo depmod -a
+          sudo modprobe cryptodev
+
+      # The worst hack you're going to see today!
+
+      # Both Ubuntu 20.04 and 22.04 ship with with a pretty old version
+      # of LLVM. However, GitHub Actions runners currently seem to run
+      # on 3rd gen Ryzen CPUs. Those old versions of LLVM don't recognize
+      # them, so `llvm::sys::getHostCPUName()` returns "generic".
+
+      # This "generic" model is then passed by POCL as the target CPU
+      # for builds, but it doesn't appear to work, and fails with:
+      # > error: unknown target CPU 'generic'
+
+      # Newer versions of POCL include a way to override the CPU:
+      # https://github.com/pocl/pocl/commit/5cb5f67434f74565d327a84ad54703c222d45feb
+      # (This commit is also included in POCL >= 3.0 in Debian patches)
+      # However, the one that ships with Ubuntu 20.04 and 22.04 is also
+      # pretty old and doesn't include this override feature
+
+      # So, to hack around this, we monkey-patch `llvm::sys::getHostCPUName()`
+      # in a very hacky way to return "x86-64", which is a CPU model
+      # that works for LLVM builds.
+      - name: Fix POCL
+        run: |
+          cat << EOF > pocl-hack.c
+          #include <stddef.h>
+          struct FakeStringRef {
+            const char *data;
+            size_t len;
+          };
+          struct FakeStringRef _ZN4llvm3sys14getHostCPUNameEv() {
+            return (struct FakeStringRef){ .data = "x86-64", .len = 6 };
+          }
+          EOF
+
+          $CC pocl-hack.c -fPIC -shared -o pocl-hack.so
+          echo "LD_PRELOAD=$PWD/pocl-hack.so" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          make -j"$(nproc)"
+
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure

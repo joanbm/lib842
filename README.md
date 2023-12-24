@@ -1,6 +1,6 @@
 # lib842
 
-[![Build Status](https://travis-ci.org/joanbm/lib842.svg?branch=master)](https://travis-ci.org/joanbm/lib842)
+[![Build and test](https://github.com/joanbm/lib842/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/joanbm/lib842/actions/workflows/build-and-test.yml)
 
 **lib842** provides efficient, accelerated implementation of the 842 compression algorithm available from userspace. 842 is a compression algorithm by IBM, similar to LZ77, designed for very fast compression and decompression. Thus, it is suitable for cases such as compressed RAM (zram) or I/O link compression.
 
