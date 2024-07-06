@@ -7,7 +7,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04]
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
         compiler: [gcc, clang]
 
     runs-on: ${{ matrix.os }}
@@ -63,6 +63,7 @@ jobs:
       # in a very hacky way to return "x86-64", which is a CPU model
       # that works for LLVM builds.
       - name: Fix POCL
+        if: ${{ matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-22.04'}}
         run: |
           cat << EOF > pocl-hack.c
           #include <stddef.h>
